@@ -192,4 +192,27 @@ def add_player_to_game(game_id: int, player_id: int, Authorize: AuthJWT = Depend
     """
     Authorize.jwt_required()
 
-    return JSONResponse(content={"status": "success", "id": game_id, "success": True})
+    try:
+        game = Game.objects.get(id=game_id)
+        player = Player.objects.get(id=player_id)
+        
+        if game.players.count() >= 5:
+            raise IntegrityError("Maximum players limit reached for this game")
+        
+        if player in game.players.all():
+            raise IntegrityError("Player already exists in this game")
+        
+        game.players.add(player)
+        
+        return JSONResponse(content={"status": "success", "id": game_id, "success": True})
+    
+    except Game.DoesNotExist:
+        return JSONResponse(content={"status": "error", "message": "Game not found", "success": False}, status_code=400)
+    
+    except Player.DoesNotExist:
+        return JSONResponse(content={"status": "error", "message": "Player not found", "success": False}, status_code=400)
+    
+    except IntegrityError as e:
+        return JSONResponse(content={"status": "error", "message": str(e), "success": False}, status_code=400)
+    except DatabaseError as e:
+        return JSONResponse(content={"status": "error", "message": str(e), "success": False}, status_code=400)
