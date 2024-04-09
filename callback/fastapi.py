@@ -4,6 +4,7 @@ from fastapi_jwt_auth import AuthJWT
 from fastapi_jwt_auth.exceptions import AuthJWTException
 from pydantic import BaseModel
 from typing import Optional
+from django.db import IntegrityError, transaction, DatabaseError
 from callback.models import (
     Player,
     Game
@@ -142,12 +143,32 @@ def create_new_player(player: PlayerItem, Authorize: AuthJWT = Depends()):
     """
     Authorize.jwt_required()
 
-    new_player = Player()
-    new_player.name = player.name
-    new_player.email = player.email
-    new_player.save()
+    if not player.name.isalpha():
+        raise HTTPException(status_code=400, detail="Имя должно содержать только буквы")
 
-    return JSONResponse(content={"status": "success", "id": new_player.id, "success": True})
+    if "@" not in player.email or "." not in player.email:
+        raise HTTPException(status_code=400, detail="Некорректный формат email")
+
+    with transaction.atomic():
+        try:
+
+            existing_player = Player.objects.select_for_update().filter(name=player.name).first()
+            if existing_player:
+                raise IntegrityError("player with such name or email already exists")
+
+            existing_email = Player.objects.select_for_update().filter(email=player.email).first()
+            if existing_email:
+                raise IntegrityError("player with such name or email already exists")
+
+            new_player = Player(name=player.name, email=player.email)
+            new_player.save()
+
+            return JSONResponse(content={"status": "success", "id": new_player.id, "success": True})
+
+        except IntegrityError as e:
+            return JSONResponse(content={"status": "error", "message": str(e), "success": False})
+        except DatabaseError as e:
+            return JSONResponse(content={"status": "error", "message": str(e), "success": False})
 
 
 @app.post('/new_game', tags=['Main'], responses={200: {"model": StatusMessage}, 400: {"model": ErrorMessage}})
