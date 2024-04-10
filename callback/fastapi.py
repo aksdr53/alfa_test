@@ -5,6 +5,7 @@ from fastapi_jwt_auth.exceptions import AuthJWTException
 from pydantic import BaseModel
 from typing import Optional
 from django.db import IntegrityError, transaction, DatabaseError
+from django.core.exceptions import ValidationError
 from callback.models import (
     Player,
     Game
@@ -151,22 +152,14 @@ def create_new_player(player: PlayerItem, Authorize: AuthJWT = Depends()):
 
     with transaction.atomic():
         try:
-
-            existing_player = Player.objects.select_for_update().filter(name=player.name).first()
-            if existing_player:
-                raise IntegrityError("player with such name or email already exists")
-
-            existing_email = Player.objects.select_for_update().filter(email=player.email).first()
-            if existing_email:
-                raise IntegrityError("player with such name or email already exists")
-
             new_player = Player(name=player.name, email=player.email)
             new_player.save()
 
             return JSONResponse(content={"status": "success", "id": new_player.id, "success": True})
-
-        except IntegrityError as e:
+        except ValidationError as e:
             return JSONResponse(content={"status": "error", "message": str(e), "success": False})
+        except IntegrityError as e:
+            return JSONResponse(content={"status": "error", "message": "player with such name or email already exists", "success": False})
         except DatabaseError as e:
             return JSONResponse(content={"status": "error", "message": str(e), "success": False})
 
@@ -193,7 +186,7 @@ def add_player_to_game(game_id: int, player_id: int, Authorize: AuthJWT = Depend
     Authorize.jwt_required()
 
     try:
-        game = Game.objects.get(id=game_id)
+        game = Game.objects.select_for_update().get(id=game_id)
         player = Player.objects.get(id=player_id)
         
         if game.players.count() >= 5:
